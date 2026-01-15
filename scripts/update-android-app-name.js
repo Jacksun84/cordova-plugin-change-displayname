@@ -1,78 +1,61 @@
 #!/usr/bin/env node
 
-var fs = require('fs');
-var path = require("path");
-var xml2js = require('xml2js');
-var parser = new xml2js.Parser();
-var builder = new xml2js.Builder({
-    xmldec: {
-        version: '1.0',
-        encoding: 'UTF-8'
-    }
-});
+const fs = require('fs');
+const path = require('path');
 
 module.exports = function (context) {
-    // Only run for Android
+    // 1. Only run for Android
     if (context.opts.platforms.indexOf('android') === -1) return;
 
-    console.log('MABS 12: Attempting to set app name for android');
+    console.log('MABS 12: Starting App Name update hook...');
 
-    var projectRoot = context.opts.projectRoot;
-    
-    // Modern Cordova uses 'cordova-common' which should be required normally
-    var ConfigParser;
     try {
-        ConfigParser = require('cordova-common').ConfigParser;
-    } catch (e) {
-        // Fallback for older environments if necessary
-        ConfigParser = context.requireCordovaModule('cordova-common/src/ConfigParser/ConfigParser');
-    }
-
-    // Identify paths
-    const platformRoot = path.join(projectRoot, 'platforms', 'android');
-    const usesNewStructure = fs.existsSync(path.join(platformRoot, 'app'));
-    
-    const basePath = usesNewStructure ? path.join(platformRoot, 'app', 'src', 'main') : platformRoot;
-    
-    // In MABS/Cordova, the global config.xml is in the project root
-    var globalConfigPath = path.join(projectRoot, 'config.xml');
-    var stringsPath = path.join(basePath, 'res', 'values', 'strings.xml');
-
-    if (!fs.existsSync(globalConfigPath)) {
-        console.error('Could not find global config.xml');
-        return;
-    }
-
-    var cfg = new ConfigParser(globalConfigPath);
-    var name = cfg.getPreference('AppName');
-
-    if (name && fs.existsSync(stringsPath)) {
-        var stringsXml = fs.readFileSync(stringsPath, 'UTF-8');
+        const projectRoot = context.opts.projectRoot;
         
-        parser.parseString(stringsXml, function (err, data) {
-            if (err) {
-                console.error('Error parsing strings.xml: ' + err);
-                return;
-            }
+        // 2. Get ConfigParser safely from Cordova
+        let ConfigParser;
+        try {
+            ConfigParser = context.requireCordovaModule('cordova-common').ConfigParser;
+        } catch (e) {
+            ConfigParser = require('cordova-common').ConfigParser;
+        }
 
-            if (data && data.resources && data.resources.string) {
-                var found = false;
-                data.resources.string.forEach(function (string) {
-                    if (string.$.name === 'app_name') {
-                        console.log('Setting Android App Name to: ' + name);
-                        string._ = name;
-                        found = true;
-                    }
-                });
+        const cfg = new ConfigParser(path.join(projectRoot, 'config.xml'));
+        const newName = cfg.getPreference('AppName');
 
-                if (found) {
-                    var xml = builder.buildObject(data);
-                    fs.writeFileSync(stringsPath, xml);
-                    console.log('strings.xml updated successfully');
-                }
-            }
-        });
-    } else {
-        console.log('No AppName preference found or strings.xml missing at ' + stringsPath);
+        if (!newName) {
+            console.log('MABS 12: No "AppName" preference found in config.xml. Skipping.');
+            return;
+        }
+
+        // 3. Define the precise MABS 12 path for strings.xml
+        // This is the standard location for Cordova-Android 10, 11, 12, and 13
+        const stringsPath = path.join(projectRoot, 'platforms', 'android', 'app', 'src', 'main', 'res', 'values', 'strings.xml');
+
+        if (!fs.existsSync(stringsPath)) {
+            console.warn('MABS 12: strings.xml not found at expected path: ' + stringsPath);
+            // We return instead of throwing to prevent the "TypeError" build crash
+            return;
+        }
+
+        // 4. Update the name using a safe String replacement
+        let content = fs.readFileSync(stringsPath, 'utf8');
+        
+        // This regex finds <string name="app_name">VALUE</string>
+        const regex = /(<string name="app_name">)(.*?)(<\/string>)/;
+        
+        if (regex.test(content)) {
+            console.log('MABS 12: Found app_name. Changing to: ' + newName);
+            const updatedContent = content.replace(regex, '$1' + newName + '$3');
+            fs.writeFileSync(stringsPath, updatedContent, 'utf8');
+            console.log('MABS 12: Successfully updated strings.xml');
+        } else {
+            console.warn('MABS 12: The tag <string name="app_name"> was not found in the file.');
+        }
+
+    } catch (err) {
+        // This block catches any error and logs it without crashing the MABS build process
+        console.error('MABS 12: An error occurred during the hook execution:');
+        console.error(err);
     }
 };
