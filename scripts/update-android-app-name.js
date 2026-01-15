@@ -1,78 +1,99 @@
 #!/usr/bin/env node
 
-var fs = require('fs');
-var path = require("path");
-var xml2js = require('xml2js');
-var parser = new xml2js.Parser();
-var builder = new xml2js.Builder({
-    xmldec: {
-        version: '1.0',
-        encoding: 'UTF-8'
-    }
-});
+const fs = require('fs');
+const path = require("path");
+const xml2js = require('xml2js');
 
 module.exports = function (context) {
     // Only run for Android
     if (context.opts.platforms.indexOf('android') === -1) return;
 
-    console.log('MABS 12: Attempting to set app name for android');
+    console.log('MABS 12: Starting App Name Update Hook');
 
-    var projectRoot = context.opts.projectRoot;
-    
-    // Modern Cordova uses 'cordova-common' which should be required normally
-    var ConfigParser;
+    const projectRoot = context.opts.projectRoot;
+    const parser = new xml2js.Parser();
+    const builder = new xml2js.Builder({
+        xmldec: { version: '1.0', encoding: 'UTF-8' }
+    });
+
+    // 1. Get ConfigParser safely
+    let ConfigParser;
     try {
-        ConfigParser = require('cordova-common').ConfigParser;
+        // Modern Cordova/MABS way
+        ConfigParser = context.requireCordovaModule('cordova-common').ConfigParser;
     } catch (e) {
-        // Fallback for older environments if necessary
-        ConfigParser = context.requireCordovaModule('cordova-common/src/ConfigParser/ConfigParser');
+        try {
+            ConfigParser = require('cordova-common').ConfigParser;
+        } catch (e2) {
+            console.error('MABS 12: Could not load ConfigParser');
+            return;
+        }
     }
 
-    // Identify paths
-    const platformRoot = path.join(projectRoot, 'platforms', 'android');
-    const usesNewStructure = fs.existsSync(path.join(platformRoot, 'app'));
-    
-    const basePath = usesNewStructure ? path.join(platformRoot, 'app', 'src', 'main') : platformRoot;
-    
-    // In MABS/Cordova, the global config.xml is in the project root
-    var globalConfigPath = path.join(projectRoot, 'config.xml');
-    var stringsPath = path.join(basePath, 'res', 'values', 'strings.xml');
-
+    // 2. Locate the global config.xml to get the 'AppName' preference
+    const globalConfigPath = path.join(projectRoot, 'config.xml');
     if (!fs.existsSync(globalConfigPath)) {
-        console.error('Could not find global config.xml');
+        console.error('MABS 12: global config.xml not found at ' + globalConfigPath);
         return;
     }
 
-    var cfg = new ConfigParser(globalConfigPath);
-    var name = cfg.getPreference('AppName');
+    const cfg = new ConfigParser(globalConfigPath);
+    const newDisplayName = cfg.getPreference('AppName');
 
-    if (name && fs.existsSync(stringsPath)) {
-        var stringsXml = fs.readFileSync(stringsPath, 'UTF-8');
-        
-        parser.parseString(stringsXml, function (err, data) {
+    if (!newDisplayName) {
+        console.log('MABS 12: No "AppName" preference found in config.xml. Skipping.');
+        return;
+    }
+
+    // 3. Locate strings.xml (Path is different in MABS 12/Android 12+)
+    const platformAndroid = path.join(projectRoot, 'platforms', 'android');
+    const stringsPaths = [
+        path.join(platformAndroid, 'app', 'src', 'main', 'res', 'values', 'strings.xml'),
+        path.join(platformAndroid, 'res', 'values', 'strings.xml') // Fallback
+    ];
+
+    let stringsXmlPath = null;
+    for (const p of stringsPaths) {
+        if (fs.existsSync(p)) {
+            stringsXmlPath = p;
+            break;
+        }
+    }
+
+    if (!stringsXmlPath) {
+        console.error('MABS 12: Could not find strings.xml in expected locations.');
+        return;
+    }
+
+    // 4. Update the XML
+    try {
+        const rawXml = fs.readFileSync(stringsXmlPath, 'utf-8');
+        parser.parseString(rawXml, (err, result) => {
             if (err) {
-                console.error('Error parsing strings.xml: ' + err);
+                console.error('MABS 12: Error parsing strings.xml: ' + err);
                 return;
             }
 
-            if (data && data.resources && data.resources.string) {
-                var found = false;
-                data.resources.string.forEach(function (string) {
-                    if (string.$.name === 'app_name') {
-                        console.log('Setting Android App Name to: ' + name);
-                        string._ = name;
-                        found = true;
+            let modified = false;
+            if (result && result.resources && result.resources.string) {
+                result.resources.string.forEach((s) => {
+                    if (s.$.name === 'app_name') {
+                        console.log(`MABS 12: Changing app_name from "${s._}" to "${newDisplayName}"`);
+                        s._ = newDisplayName;
+                        modified = true;
                     }
                 });
+            }
 
-                if (found) {
-                    var xml = builder.buildObject(data);
-                    fs.writeFileSync(stringsPath, xml);
-                    console.log('strings.xml updated successfully');
-                }
+            if (modified) {
+                const outputXml = builder.buildObject(result);
+                fs.writeFileSync(stringsXmlPath, outputXml);
+                console.log('MABS 12: strings.xml updated successfully.');
+            } else {
+                console.warn('MABS 12: "app_name" key not found in strings.xml');
             }
         });
-    } else {
-        console.log('No AppName preference found or strings.xml missing at ' + stringsPath);
+    } catch (err) {
+        console.error('MABS 12: Critical error during file processing: ' + err.message);
     }
 };
