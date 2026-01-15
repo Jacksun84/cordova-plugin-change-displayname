@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = function (context) {
-    // 1. Only run for Android
     if (context.opts.platforms.indexOf('android') === -1) return;
 
     console.log('MABS 12: Starting App Name update hook...');
@@ -12,50 +11,52 @@ module.exports = function (context) {
     try {
         const projectRoot = context.opts.projectRoot;
         
-        // 2. Get ConfigParser safely from Cordova
-        let ConfigParser;
-        try {
-            ConfigParser = context.requireCordovaModule('cordova-common').ConfigParser;
-        } catch (e) {
-            ConfigParser = require('cordova-common').ConfigParser;
-        }
+        // 1. Get the name from Plugin Variables (Your JSON APP_NAME)
+        // In Cordova hooks, variables are passed in the context.opts.cli_variables
+        let newName = (context.opts.cli_variables && context.opts.cli_variables.APP_NAME);
 
-        const cfg = new ConfigParser(path.join(projectRoot, 'config.xml'));
-        const newName = cfg.getPreference('AppName');
-
+        // 2. If not in CLI variables, try to parse it from config.xml
         if (!newName) {
-            console.log('MABS 12: No "AppName" preference found in config.xml. Skipping.');
-            return;
+            let ConfigParser;
+            try {
+                ConfigParser = context.requireCordovaModule('cordova-common').ConfigParser;
+            } catch (e) {
+                ConfigParser = require('cordova-common').ConfigParser;
+            }
+            const cfg = new ConfigParser(path.join(projectRoot, 'config.xml'));
+            
+            // Try AppName preference or the global name
+            newName = cfg.getPreference('AppName') || cfg.name();
         }
 
-        // 3. Define the precise MABS 12 path for strings.xml
-        // This is the standard location for Cordova-Android 10, 11, 12, and 13
+        // Clean up quotes if present (sometimes happens with CLI variables)
+        if (newName) {
+            newName = newName.replace(/^["']|["']$/g, '');
+        }
+
+        console.log('MABS 12: Identified Target Name: ' + newName);
+
+        // 3. Define the precise MABS 12 path
         const stringsPath = path.join(projectRoot, 'platforms', 'android', 'app', 'src', 'main', 'res', 'values', 'strings.xml');
 
         if (!fs.existsSync(stringsPath)) {
-            console.warn('MABS 12: strings.xml not found at expected path: ' + stringsPath);
-            // We return instead of throwing to prevent the "TypeError" build crash
+            console.warn('MABS 12: strings.xml not found at: ' + stringsPath);
             return;
         }
 
-        // 4. Update the name using a safe String replacement
+        // 4. Update the name using Regex (Bulletproof for Node 22)
         let content = fs.readFileSync(stringsPath, 'utf8');
-        
-        // This regex finds <string name="app_name">VALUE</string>
         const regex = /(<string name="app_name">)(.*?)(<\/string>)/;
         
         if (regex.test(content)) {
-            console.log('MABS 12: Found app_name. Changing to: ' + newName);
             const updatedContent = content.replace(regex, '$1' + newName + '$3');
             fs.writeFileSync(stringsPath, updatedContent, 'utf8');
-            console.log('MABS 12: Successfully updated strings.xml');
+            console.log('MABS 12: Successfully updated strings.xml to: ' + newName);
         } else {
-            console.warn('MABS 12: The tag <string name="app_name"> was not found in the file.');
+            console.warn('MABS 12: Tag <string name="app_name"> not found in strings.xml');
         }
 
     } catch (err) {
-        // This block catches any error and logs it without crashing the MABS build process
-        console.error('MABS 12: An error occurred during the hook execution:');
-        console.error(err);
+        console.error('MABS 12: Hook failed with error: ' + err.message);
     }
 };
