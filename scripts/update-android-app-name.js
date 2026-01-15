@@ -14,6 +14,9 @@ module.exports = function (context) {
         // 1. Get the name from Plugin Variables (Your JSON APP_NAME)
         // In Cordova hooks, variables are passed in the context.opts.cli_variables
         let newName = (context.opts.cli_variables && context.opts.cli_variables.APP_NAME);
+        if (newName) {
+            console.log('MABS 12: Identified Target Name from Plugin Variables (Your JSON APP_NAME): ' + newName);
+         }
 
         // 2. If not in CLI variables, try to parse it from config.xml
         if (!newName) {
@@ -27,6 +30,9 @@ module.exports = function (context) {
             
             // Try AppName preference or the global name
             newName = cfg.getPreference('AppName') || cfg.name();
+            if (newName) {
+                console.log('MABS 12: Identified AppName from preference or the global name: ' + newName);
+            }
         }
 
         // Clean up quotes if present (sometimes happens with CLI variables)
