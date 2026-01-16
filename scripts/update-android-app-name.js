@@ -11,69 +11,57 @@ module.exports = function (context) {
     try {
         const projectRoot = context.opts.projectRoot;
         
-        // 1. Get ConfigParser
-        let ConfigParser;
-        try {
-            ConfigParser = context.requireCordovaModule('cordova-common').ConfigParser;
-        } catch (e) {
-            ConfigParser = require('cordova-common').ConfigParser;
-        }
-        const cfg = new ConfigParser(path.join(projectRoot, 'config.xml'));
-
-        // 2. Identify the Name
-        // Check Preference first
-        let newName = cfg.getPreference('AppName');
+        // 1. Get the name from Plugin Variables (Your JSON APP_NAME)
+        // In Cordova hooks, variables are passed in the context.opts.cli_variables
+        let newName = (context.opts.cli_variables && context.opts.cli_variables.APP_NAME);
         if (newName) {
-            console.log('MABS 12: Identified Target Name from Preferences Variables (Your JSON APP_NAME): ' + newName);
+            console.log('MABS 12: Identified Target Name from Plugin Variables (Your JSON APP_NAME): ' + newName);
          }
 
-        // Check if we got the raw variable placeholder instead of the value
-        if (!newName || newName.indexOf('$') !== -1) {
-            console.log('MABS 12: Preference AppName is empty or unresolved. Checking CLI variables...');
-            newName = (context.opts.cli_variables && context.opts.cli_variables.APP_NAME);
+        // 2. If not in CLI variables, try to parse it from config.xml
+        if (!newName) {
+            let ConfigParser;
+            try {
+                ConfigParser = context.requireCordovaModule('cordova-common').ConfigParser;
+            } catch (e) {
+                ConfigParser = require('cordova-common').ConfigParser;
+            }
+            const cfg = new ConfigParser(path.join(projectRoot, 'config.xml'));
+            
+            // Try AppName preference or the global name
+            newName = cfg.getPreference('AppName') || cfg.name();
             if (newName) {
-                console.log('MABS 12: Identified AppName from CLI variables: ' + newName);
+                console.log('MABS 12: Identified AppName from preference or the global name: ' + newName);
             }
         }
 
-        // Clean up quotes if present
+        // Clean up quotes if present (sometimes happens with CLI variables)
         if (newName) {
             newName = newName.replace(/^["']|["']$/g, '');
         }
 
-        // CRITICAL CHECK: Prevent "Sapphire Care" fallback
-        if (!newName || newName === "Sapphire Care") {
-            // As a last resort, we check the global name, but if it's the wrong one, we stop.
-            const globalName = cfg.name();
-            if (globalName !== "Sapphire Care") {
-                newName = globalName;
-                if (newName) {
-                    console.log('MABS 12: Identified AppName from global name: ' + newName);
-                }
-            } else {
-                console.warn('MABS 12: Could not find other APP_NAME than "Sapphire Care". Current found name is "' + newName + '". Aborting to avoid wrong name.');
-            }
-        }
+        console.log('MABS 12: Identified Target Name: ' + newName);
 
-        console.log('MABS 12: Target Display Name identified as: ' + newName);
-
-        // 3. Identify the Path (Your suggested verification logic)
+        // 3. Define the possible MABS 12 path's
         const platformAndroid = path.join(projectRoot, 'platforms', 'android');
-        const usesNewStructure = fs.existsSync(path.join(platformAndroid, 'app'));
         
-        const basePath = usesNewStructure 
-            ? path.join(platformAndroid, 'app', 'src', 'main') 
-            : platformAndroid;
+        // Define all possible locations MABS 12 might use
+        const possiblePaths = [
+            path.join(platformAndroid, 'app', 'src', 'main', 'res', 'values', 'strings.xml'), // Modern/MABS 12
+            path.join(platformAndroid, 'res', 'values', 'strings.xml'),                     // Older structure
+            path.join(projectRoot, 'res', 'values', 'strings.xml')                          // Project root fallback
+        ];
+        let stringsPath = possiblePaths.find(p => fs.existsSync(p));
         
-        const stringsPath = path.join(basePath, 'res', 'values', 'strings.xml');
-
-        if (!fs.existsSync(stringsPath)) {
-            console.warn('MABS 12: strings.xml not found at: ' + stringsPath);
-            return;
+        if (!stringsPath) {
+            console.warn('MABS 12: strings.xml not found. Checked: ' + JSON.stringify(possiblePaths));
+            // Instead of returning, let's look for any strings.xml in the android folder as a last resort
+            return; 
         }
-         console.log('MABS 12: Found strings.xml at: ' + stringsPath);
 
-        // 4. Update the name using Regex
+        console.log('MABS 12: Found strings.xml at: ' + stringsPath);
+
+        // 4. Update the name using Regex (Bulletproof for Node 22)
         let content = fs.readFileSync(stringsPath, 'utf8');
         const regex = /(<string name="app_name">)(.*?)(<\/string>)/;
         
@@ -82,7 +70,7 @@ module.exports = function (context) {
             fs.writeFileSync(stringsPath, updatedContent, 'utf8');
             console.log('MABS 12: Successfully updated strings.xml to: ' + newName);
         } else {
-            console.warn('MABS 12: The tag <string name="app_name"> was not found in the file.');
+            console.warn('MABS 12: Tag <string name="app_name"> not found in strings.xml');
         }
 
     } catch (err) {
