@@ -55,10 +55,32 @@ module.exports = function (context) {
         
         if (!stringsPath) {
             console.warn('MABS 12: strings.xml not found. Checked: ' + JSON.stringify(possiblePaths));
-            // Instead of returning, let's look for any strings.xml in the android folder as a last resort
-            return; 
+            
+            // --- NEW: LAST RESORT DEEP SEARCH ---
+            console.log('MABS 12: Standard paths failed. Searching all subdirectories for strings.xml...');
+            function findFileRecursively(dir, fileName) {
+                const list = fs.readdirSync(dir);
+                for (let file of list) {
+                    file = path.join(dir, file);
+                    const stat = fs.statSync(file);
+                    if (stat && stat.isDirectory()) {
+                        const res = findFileRecursively(file, fileName);
+                        if (res) return res;
+                    } else if (file.endsWith(fileName)) {
+                        return file;
+                    }
+                }
+                return null;
+            }
+            stringsPath = findFileRecursively(platformAndroid, 'strings.xml');
+            // --- END OF DEEP SEARCH ---
         }
 
+        if (!stringsPath) {
+            console.warn('MABS 12: strings.xml could not be found anywhere in ' + platformAndroid);
+            return; 
+        }
+        
         console.log('MABS 12: Found strings.xml at: ' + stringsPath);
 
         // 4. Update the name using Regex (Bulletproof for Node 22)
