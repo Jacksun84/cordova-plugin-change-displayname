@@ -11,32 +11,6 @@ module.exports = function (context) {
 
     try {
         const projectRoot = context.opts.projectRoot;
-
-        /*
-        // 1. Get the name from Plugin Variables (Your JSON APP_NAME)
-        // In Cordova hooks, variables are passed in the context.opts.cli_variables
-        let newName = (context.opts.cli_variables && context.opts.cli_variables.APP_NAME);
-        if (newName) {
-            console.log('MABS 12: Identified Target Name from Plugin Variables (Your JSON APP_NAME): ' + newName);
-         }
-
-        // 2. If not in CLI variables, try to parse it from config.xml
-        if (!newName) {
-            let ConfigParser;
-            try {
-                ConfigParser = context.requireCordovaModule('cordova-common').ConfigParser;
-            } catch (e) {
-                ConfigParser = require('cordova-common').ConfigParser;
-            }
-            const cfg = new ConfigParser(path.join(projectRoot, 'config.xml'));
-            
-            // Try AppName preference or the global name
-            newName = cfg.getPreference('AppName') || cfg.name();
-            if (newName) {
-                console.log('MABS 12: Identified AppName from preference or the global name: ' + newName);
-            }
-        }
-        */
         
         const usesNewStructure = fs.existsSync(path.join(projectRoot, 'platforms', 'android', 'app'));
         const basePath = usesNewStructure ? path.join(projectRoot, 'platforms', 'android', 'app', 'src', 'main') : path.join(projectRoot, 'platforms', 'android');
