@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const semver = require('semver');
 
 module.exports = function (context) {
     if (context.opts.platforms.indexOf('android') === -1) return;
@@ -10,7 +11,8 @@ module.exports = function (context) {
 
     try {
         const projectRoot = context.opts.projectRoot;
-        
+
+        /*
         // 1. Get the name from Plugin Variables (Your JSON APP_NAME)
         // In Cordova hooks, variables are passed in the context.opts.cli_variables
         let newName = (context.opts.cli_variables && context.opts.cli_variables.APP_NAME);
@@ -34,6 +36,21 @@ module.exports = function (context) {
                 console.log('MABS 12: Identified AppName from preference or the global name: ' + newName);
             }
         }
+        */
+        
+        const usesNewStructure = fs.existsSync(path.join(projectRoot, 'platforms', 'android', 'app'));
+        const basePath = usesNewStructure ? path.join(projectRoot, 'platforms', 'android', 'app', 'src', 'main') : path.join(projectRoot, 'platforms', 'android');
+        var configPath = path.join(basePath, 'res', 'xml', 'config.xml');
+    
+        // make sure the android config file exists
+        try {
+            fs.accessSync(configPath, fs.F_OK);
+        } catch(e) {
+            console.error(`Could not find android config.xml at ${configPath}`);
+            return;
+        }
+    
+        let newName = getConfigParser(context, configPath).getPreference('AppName');
 
         // Clean up quotes if present (sometimes happens with CLI variables)
         if (newName) {
@@ -99,3 +116,14 @@ module.exports = function (context) {
         console.error('MABS 12: Hook failed with error: ' + err.message);
     }
 };
+
+function getConfigParser(context, config) {
+
+    if (semver.lt(context.opts.cordova.version, '5.4.0')) {
+        ConfigParser = context.requireCordovaModule('cordova-lib/src/ConfigParser/ConfigParser');
+    } else {
+        ConfigParser = context.requireCordovaModule('cordova-common/src/ConfigParser/ConfigParser');
+    }
+    
+    return new ConfigParser(config);
+}
