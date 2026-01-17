@@ -3,4 +3,4 @@ Plugin created by OutSystems Experts team to solve an issue related with the nam
 
 ### [16-01-2026]
 
-The plugin hook for android was updated to be compatible with OutSystems MABS12 (released on December 2025).
+The hook for android was updated to be compatible with OutSystems MABS12 (released on December 2025).
